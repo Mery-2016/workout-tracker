@@ -102,7 +102,7 @@ export function StatsPage() {
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
       {summary ? (
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="stat-stage grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard label={t('stats.periodCount')} value={String(summary.period.workouts)} icon={<Dumbbell size={18} />} />
           <StatCard label={t('stats.week')} value={String(summary.week_workouts)} icon={<CalendarRange size={18} />} />
           <StatCard label={t('stats.month')} value={String(summary.month_workouts)} icon={<CalendarRange size={18} />} />

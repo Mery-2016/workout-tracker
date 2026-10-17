@@ -12,15 +12,15 @@ export function StatCard({
   icon: ReactNode;
 }) {
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex items-start justify-between gap-3">
+    <article className="stat-card-3d rounded-2xl border border-white/80 p-4 dark:border-slate-700">
+      <div className="relative z-10 flex items-start justify-between gap-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-        <span className="rounded-xl bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+        <span className="stat-icon-3d rounded-xl bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
           {icon}
         </span>
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight">{value}</p>
-      {hint ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p> : null}
+      <p className="relative z-10 mt-3 text-2xl font-semibold tracking-tight">{value}</p>
+      {hint ? <p className="relative z-10 mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p> : null}
     </article>
   );
 }

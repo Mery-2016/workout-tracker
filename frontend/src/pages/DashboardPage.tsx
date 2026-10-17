@@ -68,7 +68,7 @@ export function DashboardPage() {
       ) : null}
 
       {summary ? (
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="stat-stage grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard label={t('dashboard.week')} value={String(summary.week_workouts)} icon={<CalendarRange size={18} />} />
           <StatCard label={t('dashboard.month')} value={String(summary.month_workouts)} icon={<Dumbbell size={18} />} />
           <StatCard
