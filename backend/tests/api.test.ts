@@ -1,17 +1,35 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
 import type { Express } from 'express';
-import request from 'supertest';
+import request, { type Agent } from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
 import { formatLocalDate } from '../src/dates';
+import type { Db } from '../src/db';
+import { resetSchemaForTests } from '../src/db';
 import type { WorkoutDetails } from '../src/types';
 
-const dbPath = path.join(os.tmpdir(), `workout-tracker-${Date.now()}-${Math.random().toString(16).slice(2)}.db`);
+process.env.AUTH_SECRET = 'test-secret-test-secret';
 
+function wrap(client: PGlite): Db {
+  return {
+    async query<T>(sql: string, params: unknown[] = []) {
+      const result = await client.query<T>(sql, params);
+      return result.rows;
+    },
+    async exec(sql: string) {
+      await client.exec(sql);
+    },
+    async transaction<T>(fn: (tx: Db) => Promise<T>) {
+      return client.transaction(async (tx) => fn(wrap(tx as unknown as PGlite)));
+    },
+  };
+}
+
+let client: PGlite;
 let app: Express;
-let closeDb: () => void;
+let db: Db;
+let agent: Agent;
+let userId = 0;
 
 function today(): string {
   return formatLocalDate(new Date());
@@ -39,17 +57,23 @@ const sample = {
   ],
 };
 
-beforeAll(() => {
-  const created = createApp(dbPath);
-  app = created.app;
-  closeDb = () => created.db.close();
+beforeAll(async () => {
+  resetSchemaForTests();
+  client = new PGlite();
+  db = wrap(client);
+  app = createApp(db).app;
+  agent = request.agent(app);
+  const registered = await agent.post('/api/auth/register').send({
+    name: 'Неймар',
+    email: 'neymar@example.com',
+    password: 'password123',
+  });
+  expect(registered.status).toBe(201);
+  userId = registered.body.id as number;
 });
 
-afterAll(() => {
-  closeDb();
-  for (const suffix of ['', '-wal', '-shm']) {
-    fs.rmSync(dbPath + suffix, { force: true });
-  }
+afterAll(async () => {
+  await client.close();
 });
 
 describe('API тренировок и статистики', () => {
@@ -59,8 +83,14 @@ describe('API тренировок и статистики', () => {
     expect(response.body).toMatchObject({ ok: true, database: 'ok', foreign_keys: true });
   });
 
-  it('на пустой базе отдаёт нули', async () => {
+  it('без входа не показывает тренировки', async () => {
     const response = await request(app).get('/api/stats/summary?period=all');
+    expect(response.status).toBe(401);
+    expect(response.body.error).toBe('unauthorized');
+  });
+
+  it('на пустой базе отдаёт нули', async () => {
+    const response = await agent.get('/api/stats/summary?period=all');
     expect(response.status).toBe(200);
     expect(response.body.week_workouts).toBe(0);
     expect(response.body.month_workouts).toBe(0);
@@ -71,13 +101,13 @@ describe('API тренировок и статистики', () => {
   });
 
   it('отклоняет неверные данные', async () => {
-    const response = await request(app).post('/api/workouts').send({ title: '', workout_date: '2026-02-31' });
+    const response = await agent.post('/api/workouts').send({ title: '', workout_date: '2026-02-31' });
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('validation');
   });
 
   it('создаёт тренировку вместе с упражнениями и подходами', async () => {
-    const response = await request(app).post('/api/workouts').send(sample);
+    const response = await agent.post('/api/workouts').send(sample);
     expect(response.status).toBe(201);
     const body = response.body as WorkoutDetails;
     expect(body.title).toBe(sample.title);
@@ -88,7 +118,7 @@ describe('API тренировок и статистики', () => {
   });
 
   it('считает объём и дистанцию только по заполненным полям', async () => {
-    const response = await request(app).get('/api/stats/summary?period=all');
+    const response = await agent.get('/api/stats/summary?period=all');
     expect(response.body.total_volume_kg).toBe(500);
     expect(response.body.total_distance_km).toBe(3.5);
     expect(response.body.total_duration_minutes).toBe(60);
@@ -98,7 +128,7 @@ describe('API тренировок и статистики', () => {
   });
 
   it('фильтрует, ищет и сортирует список', async () => {
-    await request(app).post('/api/workouts').send({
+    await agent.post('/api/workouts').send({
       title: 'Утренняя йога',
       workout_date: '2020-01-02',
       start_time: null,
@@ -108,27 +138,27 @@ describe('API тренировок и статистики', () => {
       exercises: [],
     });
 
-    const search = await request(app).get('/api/workouts').query({ search: 'йога' });
+    const search = await agent.get('/api/workouts').query({ search: 'йога' });
     expect(search.body.total).toBe(1);
     expect(search.body.items[0].title).toBe('Утренняя йога');
     expect(search.body.items[0].exercise_count).toBe(0);
 
-    const byType = await request(app).get('/api/workouts').query({ type: 'strength' });
+    const byType = await agent.get('/api/workouts').query({ type: 'strength' });
     expect(byType.body.total).toBe(1);
 
-    const sorted = await request(app).get('/api/workouts').query({ sort: 'asc', limit: 1, page: 1 });
+    const sorted = await agent.get('/api/workouts').query({ sort: 'asc', limit: 1, page: 1 });
     expect(sorted.body.items[0].workout_date).toBe('2020-01-02');
     expect(sorted.body.total).toBe(2);
 
-    const oldPeriod = await request(app).get('/api/stats/summary').query({ period: '7d' });
+    const oldPeriod = await agent.get('/api/stats/summary').query({ period: '7d' });
     expect(oldPeriod.body.period.workouts).toBe(1);
     expect(oldPeriod.body.total_volume_kg).toBe(500);
   });
 
   it('обновляет состав и не оставляет старые упражнения', async () => {
-    const list = await request(app).get('/api/workouts').query({ search: 'Силовая' });
+    const list = await agent.get('/api/workouts').query({ search: 'Силовая' });
     const id = list.body.items[0].id as number;
-    const updated = await request(app).put(`/api/workouts/${id}`).send({
+    const updated = await agent.put(`/api/workouts/${id}`).send({
       title: 'Силовая ноги',
       workout_date: today(),
       start_time: '19:00',
@@ -147,45 +177,72 @@ describe('API тренировок и статистики', () => {
     expect(updated.body.exercises[0].name).toBe('Жим');
     expect(updated.body.duration_minutes).toBe(45);
 
-    const stats = await request(app).get('/api/stats/exercises').query({ period: 'all', exercise: 'Жим' });
+    const stats = await agent.get('/api/stats/exercises').query({ period: 'all', exercise: 'жим' });
     expect(stats.body.names).toContain('Жим');
     expect(stats.body.names).not.toContain('Присед');
     expect(stats.body.weight_series[0].weight_kg).toBe(80);
     expect(stats.body.top[0].total_volume_kg).toBe(480);
   });
 
-  it('удаляет тренировку каскадом и возвращает 404 повторно', async () => {
-    const list = await request(app).get('/api/workouts');
-    const id = list.body.items[0].id as number;
-    const removed = await request(app).delete(`/api/workouts/${id}`);
-    expect(removed.status).toBe(200);
-    const missing = await request(app).get(`/api/workouts/${id}`);
+  it('не показывает чужие тренировки', async () => {
+    const other = request.agent(app);
+    const registered = await other.post('/api/auth/register').send({
+      name: 'Друг',
+      email: 'friend@example.com',
+      password: 'password123',
+    });
+    expect(registered.status).toBe(201);
+    const hidden = await other.get('/api/workouts');
+    expect(hidden.status).toBe(200);
+    expect(hidden.body.total).toBe(0);
+    const mine = await agent.get('/api/workouts');
+    const missing = await other.get(`/api/workouts/${mine.body.items[0].id}`);
     expect(missing.status).toBe(404);
-    const again = await request(app).delete(`/api/workouts/${id}`);
+  });
+
+  it('удаляет тренировку каскадом и возвращает 404 повторно', async () => {
+    const list = await agent.get('/api/workouts');
+    const id = list.body.items[0].id as number;
+    const removed = await agent.delete(`/api/workouts/${id}`);
+    expect(removed.status).toBe(200);
+    const missing = await agent.get(`/api/workouts/${id}`);
+    expect(missing.status).toBe(404);
+    const again = await agent.delete(`/api/workouts/${id}`);
     expect(again.status).toBe(404);
   });
 
-  it('откатывает транзакцию, если дочерняя запись неверна', () => {
-    const created = createApp(dbPath);
-    const before = created.db.prepare('SELECT COUNT(*) AS c FROM workouts').get() as { c: number };
-    expect(() => {
-      const now = new Date().toISOString();
-      const tx = created.db.transaction(() => {
-        created.db
-          .prepare(
-            `INSERT INTO workouts
-              (title, workout_date, start_time, duration_minutes, workout_type, notes, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run('Слом', '2026-01-01', null, 10, 'other', null, now, now);
-        created.db
-          .prepare('INSERT INTO exercises (workout_id, name, position, created_at) VALUES (?, ?, ?, ?)')
-          .run(999999, 'нет родителя', 0, now);
-      });
-      tx();
-    }).toThrow();
-    const after = created.db.prepare('SELECT COUNT(*) AS c FROM workouts').get() as { c: number };
-    expect(after.c).toBe(before.c);
-    created.db.close();
+  it('откатывает транзакцию, если дочерняя запись неверна', async () => {
+    const before = await db.query<{ c: number }>('SELECT COUNT(*)::int AS c FROM workouts');
+    await expect(
+      db.transaction(async (tx) => {
+        const now = new Date().toISOString();
+        await tx.query(
+          `INSERT INTO workouts
+            (user_id, title, workout_date, start_time, duration_minutes, workout_type, notes, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [userId, 'Слом', '2026-01-01', null, 10, 'other', null, now, now],
+        );
+        await tx.query(
+          'INSERT INTO exercises (workout_id, name, position, created_at) VALUES ($1, $2, $3, $4)',
+          [999999, 'нет родителя', 0, now],
+        );
+      }),
+    ).rejects.toThrow();
+    const after = await db.query<{ c: number }>('SELECT COUNT(*)::int AS c FROM workouts');
+    expect(Number(after[0].c)).toBe(Number(before[0].c));
+  });
+
+  it('не пускает с неверным паролем и не даёт занять почту второй раз', async () => {
+    const bad = await request(app).post('/api/auth/login').send({
+      email: 'neymar@example.com',
+      password: 'wrong-password',
+    });
+    expect(bad.status).toBe(401);
+    const taken = await request(app).post('/api/auth/register').send({
+      name: 'Ещё раз',
+      email: 'Neymar@example.com',
+      password: 'password123',
+    });
+    expect(taken.status).toBe(409);
   });
 });

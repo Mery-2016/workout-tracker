@@ -1,6 +1,7 @@
-import { BarChart3, Dumbbell, LayoutDashboard, Menu, Moon, Plus, Settings, Sun, X } from 'lucide-react';
+import { BarChart3, Dumbbell, LayoutDashboard, LogOut, Menu, Moon, Plus, Settings, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { useI18n, type Language } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -13,6 +14,7 @@ const links = [
 
 export function Layout() {
   const { t, lang, setLang, locale } = useI18n();
+  const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export function Layout() {
           </span>
           <div>
             <p className="font-semibold">{t('app.name')}</p>
-            <p className="text-xs text-slate-500">SQLite</p>
+            <p className="text-xs text-slate-500">{user?.name}</p>
           </div>
         </div>
         <nav className="mt-8 flex flex-1 flex-col gap-1">
@@ -89,6 +91,16 @@ export function Layout() {
             );
           })}
         </nav>
+        <button
+          type="button"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+          onClick={() => {
+            void logout().then(() => navigate('/login'));
+          }}
+        >
+          <LogOut size={18} />
+          {t('auth.logout')}
+        </button>
         <NavLink
           to="/workouts/new"
           className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"

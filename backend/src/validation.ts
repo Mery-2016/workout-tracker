@@ -59,6 +59,27 @@ export const listQuerySchema = z.object({
 
 export const periodSchema = z.enum(['7d', '30d', '90d', 'all']).optional().default('30d');
 
+export const registerSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(200)
+    .transform((value) => value.toLowerCase()),
+  password: z.string().min(8).max(200),
+});
+
+export const loginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(200)
+    .transform((value) => value.toLowerCase()),
+  password: z.string().min(1).max(200),
+});
+
 export function parseWorkoutBody(body: unknown): WorkoutInput {
   return workoutBodySchema.parse(body);
 }

@@ -2,7 +2,7 @@
   "name": "workout-tracker",
   "private": true,
   "version": "1.0.0",
-  "description": "Локальный учёт тренировок: React, Express и SQLite",
+  "description": "Учёт тренировок: React, Express и Neon",
   "workspaces": [
     "frontend",
     "backend"
@@ -21,7 +21,6 @@
     "node": ">=20"
   },
   "allowScripts": {
-    "better-sqlite3@12.11.1": true,
     "esbuild@0.28.2": true
   }
 }
